@@ -1,8 +1,20 @@
 <template>
   <aside class="sidebar">
     <div class="sidebar__brand">
-      <img class="brand-logo" :src="logoSrc" alt="Prompt Package logo" />
-      <span class="brand-name">Prompt Package</span>
+      <svg class="brand-logo-svg" width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Main box body -->
+        <path d="M21 8L12 12L3 8L12 4L21 8Z" fill="#3B82F6" stroke="#3B82F6" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M21 8V16L12 20L3 16V8L12 12L21 8Z" fill="#2563EB" stroke="#2563EB" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- Terminal prompt on the box -->
+        <path d="M7 13L9 15L7 17" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="10" y1="17" x2="13" y2="17" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+        <!-- Sparkle/Star -->
+        <path d="M19 3L19.5 5L21 5.5L19.5 6L19 8L18.5 6L17 5.5L18.5 5L19 3Z" fill="#3B82F6"/>
+      </svg>
+      <h1 class="brand-name">
+        <span class="brand-name__prompt">Prompt</span>
+        <span class="brand-name__package">Package</span>
+      </h1>
     </div>
 
     <nav class="sidebar__nav" aria-label="Primary">
@@ -98,18 +110,25 @@ const secondaryNav = [
   margin-bottom: var(--space-5);
 }
 
-.brand-logo {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  border: 1px solid var(--color-border);
+.brand-logo-svg {
+  flex-shrink: 0;
 }
 
 .brand-name {
-  font-size: var(--text-lg);
-  font-weight: 500;
-  letter-spacing: 0.2px;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.brand-name__prompt {
+  color: #3b82f6; /* Matching the blue in the logo */
+}
+
+.brand-name__package {
+  color: #111827; /* Near black */
 }
 
 .sidebar__nav {
