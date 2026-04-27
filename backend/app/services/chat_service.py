@@ -456,6 +456,179 @@ def delete_conversation(user: User, conversation_id: int) -> None:
     db.session.commit()
 
 
+def delete_message_cascade(
+    user: User, conversation_id: int, message_id: int
+) -> int:
+    """Delete a message plus everything that followed it in the same convo.
+
+    Cascading matches how ChatGPT / OpenRouter handle it: once you cut
+    a turn out of the middle, the rest of the thread is no longer
+    coherent context, so it all comes with.
+
+    Returns the number of messages actually removed.
+    """
+    convo = get_conversation_for_user(user, conversation_id)
+
+    target = db.session.get(Message, message_id)
+    if target is None or target.conversation_id != convo.id:
+        raise ChatError("not_found", "Message not found.", status=404)
+
+    # Bulk delete everything with id >= target.id in this conversation.
+    # Ordered by id ascending is the insertion order (auto-increment),
+    # which matches real chronological order here.
+    to_delete = (
+        db.session.query(Message)
+        .filter(
+            Message.conversation_id == convo.id,
+            Message.id >= target.id,
+        )
+        .order_by(Message.id.asc())
+        .all()
+    )
+
+    count = 0
+    for m in to_delete:
+        db.session.delete(m)
+        count += 1
+
+    # Keep last_message_at consistent so the sidebar / dashboard don't
+    # keep pointing at a turn that no longer exists. Fall back to the
+    # conversation's created_at when the thread is now empty.
+    remaining_last = (
+        db.session.query(Message)
+        .filter(Message.conversation_id == convo.id)
+        .order_by(Message.id.desc())
+        .first()
+    )
+    convo.last_message_at = (
+        remaining_last.created_at if remaining_last else None
+    )
+    db.session.add(convo)
+    db.session.commit()
+    return count
+
+
+def regenerate_last_assistant(
+    user: User,
+    conversation_id: int,
+    *,
+    model: str | None = None,
+    provider: str | None = None,
+) -> tuple[Message, Conversation]:
+    """Drop the most-recent assistant message and re-run the LLM.
+
+    The preceding user turn is kept untouched (and its attachments too).
+    Returns ``(new_assistant_message, conversation)``.
+    """
+    convo = get_conversation_for_user(user, conversation_id)
+
+    history = list(convo.messages.order_by(Message.id.asc()).all())
+    if not history:
+        raise ChatError(
+            "no_messages",
+            "Nothing to regenerate yet — send a message first.",
+            status=400,
+        )
+
+    # Find the most recent assistant message. Typical shape is
+    # [..., user, assistant]; if the last turn is a user message we
+    # just run a fresh completion off the existing history.
+    last_assistant_idx: int | None = None
+    for i in range(len(history) - 1, -1, -1):
+        if history[i].role == "assistant":
+            last_assistant_idx = i
+            break
+
+    # Everything *before* the old assistant is what the new one should
+    # see as its context (including the user turn that drove the reply).
+    if last_assistant_idx is not None:
+        old_assistant = history[last_assistant_idx]
+        replay_history = history[:last_assistant_idx]
+        # The last entry in replay_history should be the user turn we
+        # want to re-answer. If it isn't (rare; e.g. two assistants in a
+        # row), we still replay whatever's there — the LLM will handle it.
+        db.session.delete(old_assistant)
+        db.session.commit()
+    else:
+        # No assistant yet — treat the whole history as replay context
+        # and just call the LLM again. (Unusual path; mostly for safety.)
+        replay_history = history
+
+    # Pick the user message that drove the (now-deleted) reply. This is
+    # the last user turn in replay_history.
+    last_user: Message | None = None
+    for m in reversed(replay_history):
+        if m.role == "user":
+            last_user = m
+            break
+    if last_user is None:
+        raise ChatError(
+            "no_user_turn",
+            "No user message found to regenerate from.",
+            status=400,
+        )
+
+    chosen_provider = _normalize_chat_provider(
+        provider if provider is not None else convo.provider
+    )
+    try:
+        api_key = get_decrypted_key_for(user, chosen_provider)
+    except CredentialsError as err:
+        raise ChatError(err.code, err.message, status=err.status) from err
+    if not api_key:
+        raise ChatError(
+            "no_api_key",
+            _PROVIDER_KEY_HINT.get(
+                chosen_provider,
+                f"Add your {get_provider(chosen_provider).label} API key in Settings before chatting.",
+            ),
+            status=400,
+        )
+    chosen_model = _normalize_model(model or convo.model)
+
+    # Build the payload from history *before* the old user turn + the
+    # user turn itself as the "new" user message (re-uses attachments).
+    pack = convo.context_pack if convo.context_pack_id else None
+    # Everything up to but not including the last user turn.
+    prior_history = [m for m in replay_history if m is not last_user]
+    user_attachments = list(last_user.attachments or [])
+    payload = _build_message_payload(
+        prior_history,
+        last_user.content,
+        context_pack=pack,
+        attachments=user_attachments,
+    )
+
+    try:
+        completion = chat_completion(
+            api_key,
+            model=chosen_model,
+            messages=payload,
+            provider=chosen_provider,
+        )
+    except LLMError as err:
+        raise ChatError(err.code, err.message, status=err.status) from err
+
+    assistant_msg = Message(
+        conversation_id=convo.id,
+        role="assistant",
+        content=completion.content,
+        model=completion.model or chosen_model,
+        provider=chosen_provider,
+        prompt_tokens=completion.prompt_tokens,
+        completion_tokens=completion.completion_tokens,
+        total_tokens=completion.total_tokens,
+    )
+    db.session.add(assistant_msg)
+    convo.model = chosen_model
+    convo.provider = chosen_provider
+    convo.last_message_at = _utcnow()
+    db.session.add(convo)
+    db.session.commit()
+
+    return assistant_msg, convo
+
+
 __all__ = [
     "ChatError",
     "DEFAULT_MODEL",
@@ -463,10 +636,12 @@ __all__ = [
     "count_for_user",
     "create_conversation",
     "delete_conversation",
+    "delete_message_cascade",
     "get_conversation_for_user",
     "list_for_project",
     "list_messages",
     "list_recent_for_user",
+    "regenerate_last_assistant",
     "send_user_message",
     "set_context_pack",
 ]

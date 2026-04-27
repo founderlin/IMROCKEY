@@ -2,7 +2,7 @@
   <div class="projects-view">
     <PageHeader
       title="Projects"
-      description="Each project keeps its own conversations, summaries, memories, and Context Packs."
+      description="Each project keeps its own blablas, summaries, memories, and Context Packs."
     >
       <template #actions>
         <button
@@ -32,7 +32,7 @@
     <EmptyState
       v-else-if="projects.length === 0"
       title="No projects yet"
-      description="Projects group your conversations, summaries, and Context Packs together. Create your first one to get started."
+      description="Projects group your blablas, summaries, and Context Packs together. Create your first one to get started."
     >
       <template #icon>
         <svg
@@ -206,7 +206,7 @@ function onUpdated(project) {
 
 async function onDelete(project) {
   const ok = window.confirm(
-    `Delete "${project.name}"? Conversations and Context Packs in this project will be removed in later milestones.`
+    `Delete "${project.name}"? Blablas and Context Packs in this project will be removed in later milestones.`
   )
   if (!ok) return
   deletingId.value = project.id

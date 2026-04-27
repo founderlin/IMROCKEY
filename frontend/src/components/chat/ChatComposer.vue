@@ -23,6 +23,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:modelValue',
   'submit',
+  'stop',
   'add-files',
   'remove-attachment'
 ])
@@ -66,6 +67,20 @@ function submit() {
   const trimmed = internal.value.trim()
   if (!trimmed && props.attachments.length === 0) return
   emit('submit', trimmed)
+}
+
+function stopStreaming() {
+  if (!props.pending) return
+  emit('stop')
+}
+
+function onPrimaryClick() {
+  // While a request is in flight, the button is the "stop" affordance.
+  if (props.pending) {
+    stopStreaming()
+    return
+  }
+  submit()
 }
 
 const anyUploading = computed(() =>
@@ -293,8 +308,15 @@ function iconForAttachment(att) {
       </li>
     </ul>
 
-    <!-- Textarea wrapper with inline attach button (bottom-left, OpenRouter style). -->
-    <div class="composer__input-wrap">
+    <!-- Input shell: a rounded container that visually reads as "the textbox".
+         Everything lives inside — the actual textarea, plus a bottom control
+         row with attach + model picker on the left, hint + send on the right.
+         OpenRouter / ChatGPT / OpenCode all lay their chat composer out this
+         way. -->
+    <div
+      class="composer__input-wrap"
+      :class="{ 'composer__input-wrap--disabled': disabled }"
+    >
       <textarea
         ref="textareaRef"
         v-model="internal"
@@ -306,35 +328,98 @@ function iconForAttachment(att) {
         @paste="onPaste"
       />
 
-      <button
-        type="button"
-        class="composer__attach-btn"
-        :title="
-          atLimit
-            ? `Up to ${maxAttachments} files per message`
-            : 'Attach files (PDF, PNG, JPG, MD, TXT)'
-        "
-        aria-label="Attach files"
-        :disabled="disabled || pending || atLimit"
-        @click="openFilePicker"
-      >
-        <!-- Paperclip icon (Feather-style). -->
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path
-            d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
-          />
-        </svg>
-      </button>
+      <div class="composer__toolbar">
+        <div class="composer__toolbar-left">
+          <button
+            type="button"
+            class="composer__icon-btn composer__attach-btn"
+            :title="
+              atLimit
+                ? `Up to ${maxAttachments} files per message`
+                : 'Attach files (PDF, PNG, JPG, MD, TXT)'
+            "
+            aria-label="Attach files"
+            :disabled="disabled || pending || atLimit"
+            @click="openFilePicker"
+          >
+            <!-- Paperclip icon. -->
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+              />
+            </svg>
+          </button>
+
+          <!-- Leading slot: model picker and any other left-aligned widgets.
+               Parents put their ModelPicker here so it rides the same baseline
+               as the attach button. -->
+          <slot name="leading" />
+        </div>
+
+        <div class="composer__toolbar-right">
+          <span class="composer__hint">
+            <template v-if="atLimit">
+              {{ maxAttachments }}-file limit · remove one to add more
+            </template>
+            <template v-else-if="pending">
+              Press Stop to cancel
+            </template>
+            <template v-else>
+              Enter to send · Shift+Enter for newline
+            </template>
+          </span>
+          <button
+            type="button"
+            class="composer__submit"
+            :class="{
+              'composer__submit--stop': pending,
+              'composer__submit--idle': !pending
+            }"
+            :disabled="!pending && !canSend"
+            :aria-label="pending ? 'Stop generation' : 'Send message'"
+            :title="pending ? 'Stop generation' : 'Send (Enter)'"
+            @click="onPrimaryClick"
+          >
+            <!-- Stop square while pending -->
+            <svg
+              v-if="pending"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            <!-- Upload arrow while idle -->
+            <svg
+              v-else
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="12" y1="19" x2="12" y2="5" />
+              <polyline points="5 12 12 5 19 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
 
       <input
         ref="fileInputRef"
@@ -367,38 +452,6 @@ function iconForAttachment(att) {
         <span>Drop files to attach</span>
       </div>
     </div>
-
-    <div class="composer__actions">
-      <div class="composer__actions-left">
-        <slot name="leading" />
-      </div>
-      <div class="composer__actions-right">
-        <span class="composer__hint">
-          <template v-if="atLimit">
-            {{ maxAttachments }}-file limit · remove one to add more
-          </template>
-          <template v-else>
-            Enter to send · Shift+Enter for newline
-          </template>
-        </span>
-        <button
-          type="submit"
-          class="btn btn--primary composer__submit"
-          :disabled="!canSend"
-        >
-          <span v-if="pending" class="spinner" aria-hidden="true" />
-          <span>
-            {{
-              pending
-                ? 'Sending…'
-                : anyUploading
-                  ? 'Uploading…'
-                  : 'Send'
-            }}
-          </span>
-        </button>
-      </div>
-    </div>
   </form>
 </template>
 
@@ -411,6 +464,7 @@ function iconForAttachment(att) {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .composer--dragging {
@@ -423,42 +477,78 @@ function iconForAttachment(att) {
 
 .composer__input-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.composer__input-wrap:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.composer__input-wrap--disabled {
+  background: var(--color-surface-muted);
 }
 
 .composer__textarea {
   width: 100%;
   resize: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  /* Leave room on the bottom-left for the attach button. */
-  padding: 10px 14px 36px 14px;
+  /* Border + background live on the wrapper so the textarea looks like
+     part of the same box as the toolbar below. */
+  border: none;
+  background: transparent;
+  padding: 12px 14px 6px;
   font-family: inherit;
   font-size: var(--text-base);
   line-height: 1.55;
-  background: var(--color-surface);
   color: var(--color-text-primary);
-  min-height: 64px;
+  min-height: 52px;
   max-height: 220px;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
-}
-
-.composer__textarea:focus {
   outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
 
 .composer__textarea:disabled {
-  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
   cursor: not-allowed;
 }
 
-.composer__attach-btn {
-  position: absolute;
-  left: 8px;
-  bottom: 6px;
-  width: 28px;
-  height: 28px;
+.composer__textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Single control row: attach + leading slot on the left, hint + send on
+   the right. All buttons share one baseline, inside the "input box". */
+.composer__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 8px 8px 8px;
+  flex-wrap: wrap;
+}
+
+.composer__toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.composer__toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.composer__icon-btn {
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   border: 1px solid transparent;
   background: transparent;
@@ -469,15 +559,19 @@ function iconForAttachment(att) {
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease,
     border-color 0.12s ease, transform 0.12s ease;
+  flex-shrink: 0;
+}
+
+.composer__icon-btn:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 .composer__attach-btn:hover:not(:disabled) {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
   transform: rotate(-8deg);
 }
 
-.composer__attach-btn:disabled {
+.composer__icon-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -515,43 +609,67 @@ function iconForAttachment(att) {
   display: block;
 }
 
-.composer__actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.composer__actions-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  flex: 1;
-}
-
-.composer__actions-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-shrink: 0;
-}
-
 .composer__hint {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
 }
 
 .composer__submit {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.14s ease, box-shadow 0.14s ease,
+    transform 0.12s ease;
+  flex-shrink: 0;
 }
 
-.composer__submit .spinner {
-  border-color: rgba(255, 255, 255, 0.4);
-  border-top-color: var(--color-text-on-primary);
+.composer__submit--idle {
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.3);
+}
+
+.composer__submit--idle:hover:not(:disabled) {
+  background: var(--color-primary-strong, #1558b5);
+  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.45);
+  transform: translateY(-1px);
+}
+
+.composer__submit--idle:disabled {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.composer__submit--stop {
+  /* Soft-stop palette — red but not alarming. */
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.35);
+  animation: composer-pulse 1.4s ease-in-out infinite;
+}
+
+.composer__submit--stop:hover {
+  background: #dc2626;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.5);
+  animation: none;
+}
+
+@keyframes composer-pulse {
+  0%, 100% {
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.35),
+      0 0 0 0 rgba(239, 68, 68, 0.45);
+  }
+  50% {
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.35),
+      0 0 0 7px rgba(239, 68, 68, 0);
+  }
 }
 
 /* ---- Attachment chips ---- */

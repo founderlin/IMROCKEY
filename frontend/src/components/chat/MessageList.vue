@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import MessageBubble from './MessageBubble.vue'
 
 const props = defineProps({
@@ -8,7 +8,45 @@ const props = defineProps({
   highlightId: { type: [Number, String, null], default: null }
 })
 
+const emit = defineEmits(['copy', 'retry', 'delete'])
+
 const scrollEl = ref(null)
+
+// Retry is always driven by /regenerate on the server, which drops the
+// most recent assistant and re-runs the LLM on the last user turn. So
+// the button is only meaningful on:
+//   - the most recent assistant message, or
+//   - the most recent user message (if it's the very last turn, i.e.
+//     we already stopped / errored before an assistant reply).
+const lastAssistantId = computed(() => {
+  for (let i = props.messages.length - 1; i >= 0; i--) {
+    const m = props.messages[i]
+    if (m.role === 'assistant' && m.id != null) return m.id
+  }
+  return null
+})
+
+const lastUserId = computed(() => {
+  for (let i = props.messages.length - 1; i >= 0; i--) {
+    const m = props.messages[i]
+    if (m.role === 'user' && m.id != null) return m.id
+  }
+  return null
+})
+
+function canRetryMessage(msg) {
+  if (props.pending || msg.id == null) return false
+  if (msg.role === 'assistant') return msg.id === lastAssistantId.value
+  if (msg.role === 'user') {
+    // Only the most recent user turn — and only if it's currently the
+    // tail of the thread (no assistant after it yet). If there IS an
+    // assistant after it, retry the assistant instead.
+    return (
+      msg.id === lastUserId.value && lastAssistantId.value == null
+    )
+  }
+  return false
+}
 
 async function scrollToBottom() {
   await nextTick()
@@ -27,9 +65,9 @@ watch(
 <template>
   <div ref="scrollEl" class="message-list">
     <div v-if="!messages.length && !pending" class="message-list__empty">
-      <p class="message-list__empty-title">Start the conversation</p>
+      <p class="message-list__empty-title">Start the blabla</p>
       <p class="message-list__empty-hint">
-        Ask the model anything about this project. Conversations are saved automatically.
+        Ask the model anything about this project. Blablas are saved automatically.
       </p>
     </div>
 
@@ -41,6 +79,10 @@ watch(
         :highlighted="
           highlightId != null && msg.id != null && Number(msg.id) === Number(highlightId)
         "
+        :can-retry="canRetryMessage(msg)"
+        @copy="emit('copy', $event)"
+        @retry="emit('retry', $event)"
+        @delete="emit('delete', $event)"
       />
       <div v-if="pending" class="message-list__pending" aria-live="polite">
         <span class="dot" />

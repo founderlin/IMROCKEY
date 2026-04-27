@@ -6,8 +6,15 @@ import { modelLabel } from '@/constants/models'
 
 const props = defineProps({
   message: { type: Object, required: true },
-  highlighted: { type: Boolean, default: false }
+  highlighted: { type: Boolean, default: false },
+  /** Whether this message can be retried (assistants only, disabled while pending). */
+  canRetry: { type: Boolean, default: false }
 })
+
+const emit = defineEmits(['copy', 'retry', 'delete'])
+
+const copyFeedback = ref('')
+let copyFeedbackTimer = null
 
 const domId = computed(() => {
   if (props.message?.id == null) return undefined
@@ -24,13 +31,16 @@ const avatarLabel = computed(() => {
   return 'AI'
 })
 
-const meta = computed(() => {
+const modelText = computed(() => {
   if (!isAssistant.value) return ''
-  const parts = []
-  if (props.message.model) parts.push(modelLabel(props.message.model))
-  if (props.message.total_tokens != null)
-    parts.push(`${props.message.total_tokens} tok`)
-  return parts.join(' • ')
+  return props.message.model ? modelLabel(props.message.model) : ''
+})
+
+const tokensText = computed(() => {
+  if (!isAssistant.value) return ''
+  return props.message.total_tokens != null
+    ? `${props.message.total_tokens} tok`
+    : ''
 })
 
 const time = computed(() => {
@@ -44,6 +54,11 @@ const time = computed(() => {
     return ''
   }
 })
+
+/** Show footer only for persisted, non-system messages. */
+const showFooter = computed(
+  () => !isSystem.value && props.message.id != null
+)
 
 const attachments = computed(() => {
   const list = Array.isArray(props.message.attachments)
@@ -112,6 +127,10 @@ onBeforeUnmount(() => {
       }
     }
   }
+  if (copyFeedbackTimer) {
+    clearTimeout(copyFeedbackTimer)
+    copyFeedbackTimer = null
+  }
 })
 
 function downloadUrl(att) {
@@ -150,6 +169,31 @@ async function onFileClick(att, event) {
   } catch (_err) {
     /* no-op */
   }
+}
+
+function onCopyClick() {
+  emit('copy', props.message)
+  copyFeedback.value = 'Copied'
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
+  copyFeedbackTimer = setTimeout(() => {
+    copyFeedback.value = ''
+    copyFeedbackTimer = null
+  }, 1200)
+}
+
+function onRetryClick() {
+  if (!props.canRetry) return
+  emit('retry', props.message)
+}
+
+function onDeleteClick() {
+  const ok = window.confirm(
+    isUser.value
+      ? 'Delete this message and everything after it in this blabla?'
+      : 'Delete this reply?'
+  )
+  if (!ok) return
+  emit('delete', props.message)
 }
 </script>
 
@@ -260,9 +304,123 @@ async function onFileClick(att, event) {
         </li>
       </ul>
 
-      <div v-if="meta || time" class="bubble__meta">
-        <span v-if="meta" class="bubble__model">{{ meta }}</span>
-        <span v-if="time" class="bubble__time">{{ time }}</span>
+      <!-- Single-line footer: actions first (retry → copy → delete), then
+           meta text (model · tokens · time for assistants; time only for
+           users). Order is fixed so ChatGPT/OpenRouter-style power-user
+           muscle memory works in both columns. -->
+      <div
+        v-if="showFooter"
+        class="bubble__footer"
+        :class="{ 'bubble__footer--user': isUser }"
+      >
+        <button
+          type="button"
+          class="bubble-action"
+          :disabled="!canRetry"
+          :title="
+            canRetry
+              ? isUser
+                ? 'Regenerate the reply to this message'
+                : 'Regenerate this reply'
+              : 'Busy — try again in a moment'
+          "
+          aria-label="Retry"
+          @click="onRetryClick"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="bubble-action"
+          :title="copyFeedback || 'Copy message'"
+          :aria-label="copyFeedback || 'Copy message'"
+          @click="onCopyClick"
+        >
+          <svg
+            v-if="!copyFeedback"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          <svg
+            v-else
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="bubble-action bubble-action--danger"
+          :title="
+            isUser
+              ? 'Delete this message and everything after it'
+              : 'Delete this reply'
+          "
+          aria-label="Delete"
+          @click="onDeleteClick"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <path d="M10 11v6M14 11v6" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
+        </button>
+
+        <!-- Meta text — fixed order: model · tokens · time for assistants,
+             time only for user messages. -->
+        <span v-if="modelText" class="bubble__meta-text bubble__model">
+          {{ modelText }}
+        </span>
+        <span v-if="tokensText" class="bubble__meta-text bubble__tokens">
+          {{ tokensText }}
+        </span>
+        <span v-if="time" class="bubble__meta-text bubble__time">
+          {{ time }}
+        </span>
       </div>
     </div>
   </div>
@@ -341,19 +499,109 @@ async function onFileClick(att, event) {
   font-style: italic;
 }
 
-.bubble__meta {
+/* Single footer row: retry / copy / delete / meta-text, in this exact
+   order. For user bubbles the row flips with flex-direction: row-reverse
+   so the buttons still read "retry → copy → delete → meta" when scanning
+   from the outside edge of the bubble inward (i.e. the first thing next
+   to the bubble on the outside is retry, like OpenRouter/ChatGPT). */
+.bubble__footer {
   display: flex;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
   color: var(--color-text-muted);
 }
 
-.bubble--user .bubble__meta {
+.bubble__footer--user {
   flex-direction: row-reverse;
+}
+
+/* Actions fade in on hover to keep the feed calm when scanning. */
+.bubble__footer .bubble-action,
+.bubble__footer .bubble__meta-text {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.bubble:hover .bubble__footer .bubble-action,
+.bubble:focus-within .bubble__footer .bubble-action,
+.bubble:hover .bubble__footer .bubble__meta-text,
+.bubble:focus-within .bubble__footer .bubble__meta-text {
+  opacity: 1;
+}
+
+/* Keep the timestamp + model meta always visible so a turn never looks
+   timeless at rest — only the action buttons hide. */
+.bubble__footer .bubble__meta-text {
+  opacity: 0.7;
+}
+
+.bubble:hover .bubble__footer .bubble__meta-text,
+.bubble:focus-within .bubble__footer .bubble__meta-text {
+  opacity: 1;
+}
+
+.bubble__meta-text {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Small dot separators between meta items. Using ::before so it only
+   appears between siblings, not before the first one. */
+.bubble__meta-text + .bubble__meta-text::before {
+  content: '·';
+  margin: 0 6px;
+  color: var(--color-text-muted);
+  opacity: 0.6;
 }
 
 .bubble__model {
   font-weight: 500;
+}
+
+.bubble-action {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease,
+    border-color 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bubble-action:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+
+.bubble-action--danger:hover:not(:disabled) {
+  background: rgba(198, 40, 40, 0.1);
+  color: #c62828;
+  border-color: rgba(198, 40, 40, 0.35);
+}
+
+.bubble-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (hover: none) {
+  /* Touch devices never trigger hover — keep everything visible. */
+  .bubble__footer .bubble-action,
+  .bubble__footer .bubble__meta-text {
+    opacity: 1;
+  }
 }
 
 .bubble--highlighted .bubble__content {

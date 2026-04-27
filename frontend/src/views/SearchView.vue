@@ -16,7 +16,7 @@ const TABS = [
   { id: 'all', label: 'All' },
   { id: 'messages', label: 'Messages' },
   { id: 'memories', label: 'Memories' },
-  { id: 'conversations', label: 'Conversations' }
+  { id: 'conversations', label: 'Blablas' }
 ]
 
 const VALID_TABS = new Set(TABS.map((t) => t.id))
@@ -59,7 +59,7 @@ const visibleSections = computed(() => {
     { id: 'memories', label: 'Memories', items: results.value.memories },
     {
       id: 'conversations',
-      label: 'Conversations',
+      label: 'Blablas',
       items: results.value.conversations
     }
   ]
@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
   <div class="search-view">
     <PageHeader
       title="Search"
-      description="Search across your messages, memories, and conversation titles. Hits are scoped to your account only."
+      description="Search across your messages, memories, and blabla titles. Hits are scoped to your account only."
     />
 
     <div class="card card--flat search-bar">
@@ -303,7 +303,7 @@ onBeforeUnmount(() => {
       <template v-if="!lastQuery">
         <EmptyState
           title="Type to search"
-          description="Search runs as you type. Tip: search the OpenRouter model name (e.g. ‘gpt-4o-mini’) to see every conversation that used it."
+          description="Search runs as you type. Tip: search the OpenRouter model name (e.g. ‘gpt-4o-mini’) to see every blabla that used it."
         >
           <template #icon>
             <svg
@@ -428,7 +428,7 @@ onBeforeUnmount(() => {
                     <template v-if="item.conversation">
                       <span class="result-card__sep">›</span>
                       <span>{{
-                        item.conversation.title || 'Untitled conversation'
+                        item.conversation.title || 'Untitled blabla'
                       }}</span>
                     </template>
                   </span>
@@ -460,7 +460,7 @@ onBeforeUnmount(() => {
                 class="result-card__link"
               >
                 <div class="result-card__head">
-                  <span class="chip chip--conversation">Conversation</span>
+                  <span class="chip chip--conversation">Blabla</span>
                   <span class="result-card__breadcrumb">
                     <RouterLink
                       :to="{
@@ -475,7 +475,7 @@ onBeforeUnmount(() => {
                   </span>
                 </div>
                 <p class="result-card__title">
-                  <template v-for="(seg, i) in segments(item.title || 'Untitled conversation')" :key="i">
+                  <template v-for="(seg, i) in segments(item.title || 'Untitled blabla')" :key="i">
                     <mark v-if="seg.match" class="hl">{{ seg.text }}</mark>
                     <span v-else>{{ seg.text }}</span>
                   </template>

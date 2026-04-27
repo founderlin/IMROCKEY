@@ -4,7 +4,7 @@
       <header class="auth-card__header">
         <h1 class="auth-card__title">Create your account</h1>
         <p class="auth-card__subtitle">
-          Capture every AI conversation as reusable project memory.
+          Capture every AI blabla as reusable project memory.
         </p>
       </header>
 

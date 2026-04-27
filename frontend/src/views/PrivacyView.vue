@@ -10,7 +10,7 @@
       <ul class="bullets">
         <li>Your account: email and a hashed password.</li>
         <li>Your OpenRouter API key, encrypted at rest. Never returned to the browser.</li>
-        <li>Projects, conversations, messages, summaries, and Context Packs you create.</li>
+        <li>Projects, blablas, messages, summaries, and Context Packs you create.</li>
       </ul>
     </section>
 
@@ -19,14 +19,14 @@
       <ul class="bullets">
         <li>We don’t share your data with third parties.</li>
         <li>We don’t print your API key in logs.</li>
-        <li>We don’t train models on your conversations.</li>
+        <li>We don’t train models on your blablas.</li>
       </ul>
     </section>
 
     <section class="card">
       <h3 class="card__title card__title--sm">Your controls</h3>
       <ul class="bullets">
-        <li>You can delete any project, conversation, or Context Pack at any time.</li>
+        <li>You can delete any project, blabla, or Context Pack at any time.</li>
         <li>You can remove your API key from Settings.</li>
         <li>Full account deletion will be available in R12.</li>
       </ul>

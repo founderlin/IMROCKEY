@@ -48,11 +48,17 @@ const conversation = ref(null)
 const messages = ref([])
 const sending = ref(false)
 const sendError = ref('')
+// AbortController for the in-flight chat-completion request. Non-null
+// only while a request is pending so the Stop button can call .abort().
+const sendAbortController = ref(null)
 const composer = ref(null)
 
 const conversations = ref([])
 const conversationsLoading = ref(false)
 const creatingNew = ref(false)
+// Tracks which sidebar conversation row is mid-deletion so we can show
+// a spinner in place of the trash icon without blocking the whole list.
+const deletingSidebarId = ref(null)
 
 const summarizing = ref(false)
 const summarizeError = ref('')
@@ -124,7 +130,7 @@ const hasAnyProviderKey = computed(() =>
 
 const headerTitle = computed(() => {
   if (conversation.value?.title) return conversation.value.title
-  return 'New conversation'
+  return 'New blabla'
 })
 
 const headerSubtitle = computed(() => {
@@ -220,7 +226,7 @@ async function bootstrap() {
       state.value = 'not-found'
     } else {
       state.value = 'error'
-      errorMessage.value = describeApiError(err, 'Could not load this conversation.')
+      errorMessage.value = describeApiError(err, 'Could not load this blabla.')
     }
   }
 }
@@ -521,6 +527,11 @@ async function handleSubmit(content) {
   sendError.value = ''
   sending.value = true
 
+  // Fresh AbortController for this send; handleStop() calls .abort().
+  const controller =
+    typeof AbortController !== 'undefined' ? new AbortController() : null
+  sendAbortController.value = controller
+
   const tempUserMsg = {
     _tempId: `tmp-user-${Date.now()}`,
     role: 'user',
@@ -552,7 +563,8 @@ async function handleSubmit(content) {
       content: content || '',
       model: modelId,
       provider: providerId,
-      attachmentIds
+      attachmentIds,
+      signal: controller?.signal
     })
     messages.value = messages.value.filter((m) => m !== tempUserMsg)
     if (data?.user_message) messages.value.push(data.user_message)
@@ -576,22 +588,165 @@ async function handleSubmit(content) {
     }
     loadConversations()
   } catch (err) {
-    sendError.value = describeApiError(
-      err,
-      'Could not get a reply from the model.'
+    const wasAborted =
+      err?.name === 'CanceledError' ||
+      err?.name === 'AbortError' ||
+      err?.code === 'ERR_CANCELED' ||
+      (controller && controller.signal.aborted)
+    if (wasAborted) {
+      // The user hit Stop. Keep whatever's on screen; make sure the
+      // optimistic bubble is removed and we re-sync from the server so
+      // the user message that was already committed (backend commits
+      // user msg before the LLM call) is reflected correctly.
+      messages.value = messages.value.filter((m) => m !== tempUserMsg)
+      sendError.value = ''
+      try {
+        const refreshed = await chatApi.listMessages(conversation.value.id)
+        if (Array.isArray(refreshed?.messages)) {
+          messages.value = refreshed.messages
+        }
+      } catch (_e) {
+        /* ignore — optimistic removal was enough */
+      }
+    } else {
+      sendError.value = describeApiError(
+        err,
+        'Could not get a reply from the model.'
+      )
+      try {
+        const refreshed = await chatApi.listMessages(conversation.value.id)
+        if (Array.isArray(refreshed?.messages)) {
+          messages.value = refreshed.messages
+        }
+      } catch (_e) {
+        messages.value = messages.value.filter((m) => m !== tempUserMsg)
+      }
+    }
+    loadConversations()
+  } finally {
+    sending.value = false
+    sendAbortController.value = null
+    nextTick(() => composer.value?.focus())
+  }
+}
+
+function handleStop() {
+  const c = sendAbortController.value
+  if (c) {
+    try {
+      c.abort()
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+}
+
+async function handleCopyMessage(msg) {
+  const text = msg?.content || ''
+  if (!text) return
+  try {
+    await navigator.clipboard?.writeText(text)
+  } catch (_err) {
+    // Fallback for older browsers / insecure contexts.
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    } catch (_e) {
+      /* give up silently — clipboard is best-effort */
+    }
+  }
+}
+
+async function handleDeleteMessage(msg) {
+  if (!conversation.value || !msg?.id) return
+  const oldId = msg.id
+  try {
+    await chatApi.deleteMessage(conversation.value.id, oldId)
+  } catch (err) {
+    sendError.value = describeApiError(err, 'Could not delete the message.')
+    return
+  }
+  // Backend cascades: drop this message + every message with a larger id.
+  messages.value = messages.value.filter(
+    (m) => m.id == null || Number(m.id) < Number(oldId)
+  )
+  loadConversations()
+}
+
+async function handleRetryMessage(msg) {
+  // Fired from either an assistant bubble (re-run the reply to the
+  // same user turn) or from the last user bubble when no assistant has
+  // answered yet (first attempt failed / was stopped). The backend's
+  // /regenerate endpoint handles both cases — when there's no assistant
+  // it just runs a completion off the current history.
+  if (!conversation.value || sending.value) return
+  if (!msg) return
+
+  const modelId = (selectedModel.value || DEFAULT_MODEL_ID).trim()
+  const providerId = selectedProvider.value || DEFAULT_PROVIDER
+
+  // If the target is an assistant, drop it optimistically so the
+  // "thinking…" row lands in its place. For a user-bubble retry there's
+  // nothing to remove — the assistant is about to appear after it.
+  if (msg.role === 'assistant' && msg.id != null) {
+    const oldId = msg.id
+    messages.value = messages.value.filter(
+      (m) => !(m === msg || (oldId != null && m.id === oldId))
     )
+  }
+
+  const controller =
+    typeof AbortController !== 'undefined' ? new AbortController() : null
+  sendAbortController.value = controller
+  sendError.value = ''
+  sending.value = true
+
+  try {
+    const data = await chatApi.retryAssistant(conversation.value.id, {
+      model: modelId,
+      provider: providerId,
+      signal: controller?.signal
+    })
+    if (data?.assistant_message) messages.value.push(data.assistant_message)
+    if (data?.conversation) {
+      conversation.value = { ...conversation.value, ...data.conversation }
+      applyConversationModel(
+        data.conversation.model,
+        data.conversation.provider
+      )
+    }
+    loadConversations()
+  } catch (err) {
+    const wasAborted =
+      err?.name === 'CanceledError' ||
+      err?.name === 'AbortError' ||
+      err?.code === 'ERR_CANCELED' ||
+      (controller && controller.signal.aborted)
+    if (!wasAborted) {
+      sendError.value = describeApiError(
+        err,
+        'Could not regenerate the reply.'
+      )
+    }
+    // Always re-sync from the server so the old assistant comes back
+    // if the retry failed.
     try {
       const refreshed = await chatApi.listMessages(conversation.value.id)
       if (Array.isArray(refreshed?.messages)) {
         messages.value = refreshed.messages
       }
     } catch (_e) {
-      messages.value = messages.value.filter((m) => m !== tempUserMsg)
+      /* ignore */
     }
-    loadConversations()
   } finally {
     sending.value = false
-    nextTick(() => composer.value?.focus())
+    sendAbortController.value = null
   }
 }
 
@@ -613,7 +768,7 @@ async function startNewConversation() {
   } catch (err) {
     sendError.value = describeApiError(
       err,
-      'Could not create a new conversation.'
+      'Could not create a new blabla.'
     )
   } finally {
     creatingNew.value = false
@@ -675,7 +830,7 @@ async function handleWrapUp() {
   } catch (err) {
     summarizeError.value = describeApiError(
       err,
-      'Could not summarize this conversation.'
+      'Could not summarize this blabla.'
     )
   } finally {
     summarizing.value = false
@@ -793,7 +948,7 @@ async function clearAttachedPack() {
 async function handleDeleteConversation() {
   if (!conversation.value) return
   const ok = window.confirm(
-    'Delete this conversation? This cannot be undone.'
+    'Delete this blabla? This cannot be undone.'
   )
   if (!ok) return
   try {
@@ -818,7 +973,44 @@ async function handleDeleteConversation() {
       })
     }
   } catch (err) {
-    sendError.value = describeApiError(err, 'Could not delete the conversation.')
+    sendError.value = describeApiError(err, 'Could not delete the blabla.')
+  }
+}
+
+async function handleSidebarDelete(convo) {
+  if (!convo || deletingSidebarId.value === convo.id) return
+  const ok = window.confirm(
+    `Delete "${convo.title || 'New blabla'}"? This cannot be undone.`
+  )
+  if (!ok) return
+  deletingSidebarId.value = convo.id
+  const isCurrent =
+    conversation.value && conversation.value.id === convo.id
+  try {
+    await chatApi.deleteConversation(convo.id)
+    const remaining = conversations.value.filter((c) => c.id !== convo.id)
+    conversations.value = remaining
+
+    if (isCurrent) {
+      if (remaining.length) {
+        router.replace({
+          name: 'project-chat',
+          params: {
+            id: String(projectIdNum.value),
+            cid: String(remaining[0].id)
+          }
+        })
+      } else {
+        router.replace({
+          name: 'project-detail',
+          params: { id: String(projectIdNum.value) }
+        })
+      }
+    }
+  } catch (err) {
+    sendError.value = describeApiError(err, 'Could not delete the blabla.')
+  } finally {
+    deletingSidebarId.value = null
   }
 }
 
@@ -875,11 +1067,11 @@ onBeforeUnmount(() => {
 
     <div v-if="state === 'loading'" class="state-card">
       <span class="spinner" aria-hidden="true" />
-      <span class="text-secondary">Loading conversation…</span>
+      <span class="text-secondary">Loading blabla…</span>
     </div>
 
     <div v-else-if="state === 'not-found'" class="state-card state-card--empty">
-      <h2 class="state-card__title">Conversation not found</h2>
+      <h2 class="state-card__title">Blabla not found</h2>
       <p class="text-secondary">
         It may have been deleted, or you don't have access to it.
       </p>
@@ -892,7 +1084,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else-if="state === 'error'" class="banner banner--error" role="alert">
-      <strong>Could not load this conversation.</strong>
+      <strong>Could not load this blabla.</strong>
       <span>{{ errorMessage }}</span>
       <button class="btn btn--ghost btn--sm" type="button" @click="bootstrap">
         Try again
@@ -904,7 +1096,7 @@ onBeforeUnmount(() => {
         <header class="chat-sidebar__header">
           <div>
             <p class="chat-sidebar__breadcrumb">{{ project?.name }}</p>
-            <h2 class="chat-sidebar__title">Conversations</h2>
+            <h2 class="chat-sidebar__title">Blablas</h2>
           </div>
           <button
             class="btn btn--primary btn--sm"
@@ -924,42 +1116,77 @@ onBeforeUnmount(() => {
 
         <ul v-else-if="conversations.length" class="chat-sidebar__list">
           <li v-for="convo in conversations" :key="convo.id">
-            <RouterLink
-              :to="{
-                name: 'project-chat',
-                params: { id: String(projectIdNum), cid: String(convo.id) }
-              }"
-              class="chat-sidebar__item"
+            <div
+              class="chat-sidebar__row"
               :class="{
-                'chat-sidebar__item--active':
+                'chat-sidebar__row--active':
                   conversation && conversation.id === convo.id
               }"
             >
-              <span class="chat-sidebar__item-title">
-                {{ convo.title || 'New conversation' }}
-              </span>
-              <span class="chat-sidebar__item-meta">
-                <span v-if="convo.model">
-                  {{ modelLabel(convo.model, convo.provider) }}
+              <RouterLink
+                :to="{
+                  name: 'project-chat',
+                  params: { id: String(projectIdNum), cid: String(convo.id) }
+                }"
+                class="chat-sidebar__item"
+              >
+                <span class="chat-sidebar__item-title">
+                  {{ convo.title || 'New blabla' }}
                 </span>
-                <span v-if="convo.message_count != null">
-                  · {{ convo.message_count }} {{ convo.message_count === 1 ? 'msg' : 'msgs' }}
+                <span class="chat-sidebar__item-meta">
+                  <span v-if="convo.model">
+                    {{ modelLabel(convo.model, convo.provider) }}
+                  </span>
+                  <span v-if="convo.message_count != null">
+                    · {{ convo.message_count }} {{ convo.message_count === 1 ? 'msg' : 'msgs' }}
+                  </span>
+                  <span v-if="convo.last_message_at">
+                    · {{ relativeTime(convo.last_message_at) }}
+                  </span>
+                  <span v-else-if="convo.created_at">
+                    · {{ relativeTime(convo.created_at) }}
+                  </span>
+                  <span v-if="convo.summarized_at" class="chat-sidebar__badge">
+                    Summarized
+                  </span>
                 </span>
-                <span v-if="convo.last_message_at">
-                  · {{ relativeTime(convo.last_message_at) }}
-                </span>
-                <span v-else-if="convo.created_at">
-                  · {{ relativeTime(convo.created_at) }}
-                </span>
-                <span v-if="convo.summarized_at" class="chat-sidebar__badge">
-                  Summarized
-                </span>
-              </span>
-            </RouterLink>
+              </RouterLink>
+              <button
+                type="button"
+                class="chat-sidebar__delete"
+                :disabled="deletingSidebarId === convo.id"
+                :title="`Delete ${convo.title || 'this blabla'}`"
+                aria-label="Delete blabla"
+                @click.stop.prevent="handleSidebarDelete(convo)"
+              >
+                <span
+                  v-if="deletingSidebarId === convo.id"
+                  class="spinner"
+                  aria-hidden="true"
+                />
+                <svg
+                  v-else
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.9"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
+            </div>
           </li>
         </ul>
 
-        <p v-else class="chat-sidebar__empty">No conversations yet.</p>
+        <p v-else class="chat-sidebar__empty">No blablas yet.</p>
       </aside>
 
       <section class="chat-shell card">
@@ -1022,7 +1249,7 @@ onBeforeUnmount(() => {
                 v-if="attachedPack"
                 type="button"
                 class="prompt-plus__remove"
-                title="Remove Context Pack from this conversation"
+                title="Remove Context Pack from this blabla"
                 :disabled="detachingPack || sending"
                 @click="clearAttachedPack"
               >
@@ -1039,8 +1266,8 @@ onBeforeUnmount(() => {
                 !canSummarize
                   ? 'Send at least one user/assistant exchange first'
                   : conversation?.summarized_at
-                    ? 'Re-summarize this conversation'
-                    : 'Summarize this conversation and extract memories'
+                    ? 'Re-summarize this blabla'
+                    : 'Summarize this blabla and extract memories'
               "
               @click="handleWrapUp"
             >
@@ -1172,6 +1399,9 @@ onBeforeUnmount(() => {
           :messages="messages"
           :pending="sending"
           :highlight-id="highlightId"
+          @copy="handleCopyMessage"
+          @retry="handleRetryMessage"
+          @delete="handleDeleteMessage"
         />
 
         <ChatComposer
@@ -1182,6 +1412,7 @@ onBeforeUnmount(() => {
           :attachments="pendingAttachments"
           :max-attachments="MAX_ATTACH"
           @submit="handleSubmit"
+          @stop="handleStop"
           @add-files="handleAddFiles"
           @remove-attachment="handleRemoveAttachment"
         >
@@ -1215,7 +1446,7 @@ onBeforeUnmount(() => {
             </h2>
             <p class="pack-picker__hint text-secondary">
               The pack body becomes a leading system message for every reply
-              in this conversation. You can swap or remove it any time.
+              in this blabla. You can swap or remove it any time.
             </p>
           </div>
           <button
@@ -1350,8 +1581,11 @@ onBeforeUnmount(() => {
 .chat-view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  min-height: calc(100vh - var(--layout-header-h) - var(--space-7));
+  gap: var(--space-3);
+  /* Lock the whole chat route to the viewport so the composer stays
+     pinned to the bottom and only the message list scrolls. */
+  height: calc(100vh - var(--layout-header-h) - var(--space-4));
+  min-height: 0;
 }
 
 .back-link {
@@ -1404,6 +1638,14 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   font-size: var(--text-sm);
+  flex-shrink: 0;
+}
+
+/* Banner inside the chat-shell gets sensible horizontal margin so it
+   doesn't hug the scrollbar-less edges. The outermost error banner
+   (state==='error') lives on .chat-view and inherits the default. */
+.chat-shell > .banner {
+  margin: var(--space-2) var(--space-5) 0;
 }
 
 .banner strong {
@@ -1443,6 +1685,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  flex-shrink: 0;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 
 .summary-panel__header {
@@ -1571,7 +1816,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: var(--space-4);
-  min-height: 480px;
+  min-height: 0;
   align-items: stretch;
 }
 
@@ -1627,29 +1872,89 @@ onBeforeUnmount(() => {
   gap: 2px;
 }
 
-.chat-sidebar__item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-2) var(--space-3);
+/* A sidebar row wraps the RouterLink (main click target) + a hover-
+   revealed delete button. The RouterLink keeps its own padding/focus
+   ring so keyboard nav still works, while the delete button floats
+   absolutely over the right edge and only appears on hover. */
+.chat-sidebar__row {
+  position: relative;
   border-radius: var(--radius-sm);
-  text-decoration: none;
-  color: inherit;
   border: 1px solid transparent;
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
 
-.chat-sidebar__item:hover {
+.chat-sidebar__row:hover {
   background: var(--color-surface-hover);
 }
 
-.chat-sidebar__item--active {
+.chat-sidebar__row--active {
   background: var(--color-primary-soft);
   border-color: rgba(26, 115, 232, 0.25);
 }
 
-.chat-sidebar__item--active .chat-sidebar__item-title {
+.chat-sidebar__row--active .chat-sidebar__item-title {
   color: var(--color-primary);
+}
+
+.chat-sidebar__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Reserve room on the right so the title doesn't get clipped by the
+     delete button when it appears on hover. */
+  padding: var(--space-2) 36px var(--space-2) var(--space-3);
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--radius-sm);
+}
+
+.chat-sidebar__item:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.chat-sidebar__delete {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background-color 0.12s ease,
+    color 0.12s ease, border-color 0.12s ease;
+}
+
+.chat-sidebar__row:hover .chat-sidebar__delete,
+.chat-sidebar__row:focus-within .chat-sidebar__delete,
+.chat-sidebar__delete:focus-visible {
+  opacity: 1;
+}
+
+.chat-sidebar__delete:hover:not(:disabled) {
+  background: rgba(198, 40, 40, 0.1);
+  color: #c62828;
+  border-color: rgba(198, 40, 40, 0.35);
+}
+
+.chat-sidebar__delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (hover: none) {
+  /* Touch: always show the delete button so it's reachable. */
+  .chat-sidebar__delete {
+    opacity: 1;
+  }
 }
 
 .chat-sidebar__item-title {
@@ -1679,7 +1984,7 @@ onBeforeUnmount(() => {
 .chat-shell {
   display: flex;
   flex-direction: column;
-  min-height: 480px;
+  min-height: 0;
   padding: 0;
   overflow: hidden;
 }
@@ -1692,6 +1997,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .chat-header__breadcrumb {

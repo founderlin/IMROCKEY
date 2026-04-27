@@ -32,7 +32,7 @@
     <section class="card">
       <h3 class="card__title card__title--sm">LLM provider keys</h3>
       <p class="text-secondary" style="margin: 0 0 var(--space-3)">
-        Bring your own keys. Configure one or more — every conversation
+        Bring your own keys. Configure one or more — every blabla
         picks its provider from the model dropdown.
       </p>
 

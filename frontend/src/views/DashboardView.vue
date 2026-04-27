@@ -2,7 +2,7 @@
   <div class="dashboard">
     <PageHeader
       :title="welcomeTitle"
-      description="Capture every AI conversation you have on OpenRouter and turn it into project memory you can reuse later."
+      description="Capture every AI blabla you have on OpenRouter and turn it into project memory you can reuse later."
     >
       <template #actions>
         <RouterLink to="/projects" class="btn btn--primary">
@@ -25,7 +25,7 @@
         </span>
       </article>
       <article class="metric-card">
-        <span class="metric-card__label">Conversations</span>
+        <span class="metric-card__label">Blablas</span>
         <span class="metric-card__value">
           <span v-if="conversationsLoading" class="spinner" aria-hidden="true" />
           <template v-else>{{ conversationTotal }}</template>
@@ -33,7 +33,7 @@
         <span class="metric-card__hint">
           <template v-if="conversationsLoading">Loading…</template>
           <template v-else-if="conversationTotal === 0">Saved automatically when you chat</template>
-          <template v-else>{{ conversationTotal === 1 ? '1 conversation' : `${conversationTotal} conversations` }} on file</template>
+          <template v-else>{{ conversationTotal === 1 ? '1 blabla' : `${conversationTotal} blablas` }} on file</template>
         </span>
       </article>
       <article class="metric-card">
@@ -63,7 +63,7 @@
 
     <section class="card">
       <header class="card-header-row">
-        <h3 class="card__title card__title--sm">Recent conversations</h3>
+        <h3 class="card__title card__title--sm">Recent blablas</h3>
         <RouterLink
           v-if="recentConversations.length"
           to="/projects"
@@ -75,7 +75,7 @@
 
       <div v-if="conversationsLoading" class="status-row">
         <span class="spinner" aria-hidden="true" />
-        <span class="status-row__label">Loading conversations…</span>
+        <span class="status-row__label">Loading blablas…</span>
       </div>
 
       <div
@@ -83,7 +83,7 @@
         class="banner banner--error"
         role="alert"
       >
-        <strong>Could not load conversations.</strong>
+        <strong>Could not load blablas.</strong>
         <span>{{ conversationsError }}</span>
         <button
           class="btn btn--ghost btn--sm"
@@ -111,7 +111,7 @@
           >
             <div class="recent-row__main">
               <span class="recent-row__title">
-                {{ convo.title || 'Untitled conversation' }}
+                {{ convo.title || 'Untitled blabla' }}
               </span>
               <span class="recent-row__meta">
                 <span v-if="convo.project?.name" class="chip chip--primary">
@@ -147,7 +147,7 @@
       <EmptyState
         v-else
         compact
-        title="No conversations yet"
+        title="No blablas yet"
         description="Open a project and click Start chat to send your first message. It'll show up here automatically."
       >
         <template #icon>
@@ -339,7 +339,7 @@ async function loadRecentConversations() {
     conversationTotal.value = 0
     conversationsError.value = describeApiError(
       err,
-      'Could not load conversations.'
+      'Could not load blablas.'
     )
   } finally {
     conversationsLoading.value = false

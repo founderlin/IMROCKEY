@@ -87,7 +87,7 @@
       <section class="card">
         <header class="section-row">
           <div>
-            <h3 class="card__title card__title--sm">Conversations</h3>
+            <h3 class="card__title card__title--sm">Blablas</h3>
             <p class="text-secondary section-row__hint">
               Every chat with the model is saved here automatically.
             </p>
@@ -102,7 +102,7 @@
 
         <div v-if="conversationsLoading" class="state-row">
           <span class="spinner" aria-hidden="true" />
-          <span class="text-secondary">Loading conversations…</span>
+          <span class="text-secondary">Loading blablas…</span>
         </div>
 
         <div
@@ -110,7 +110,7 @@
           class="banner banner--error"
           role="alert"
         >
-          <strong>Could not load conversations.</strong>
+          <strong>Could not load blablas.</strong>
           <span>{{ conversationsError }}</span>
           <button
             class="btn btn--ghost btn--sm"
@@ -132,7 +132,7 @@
             >
               <div class="conversation-row__main">
                 <span class="conversation-row__title">
-                  {{ convo.title || 'Untitled conversation' }}
+                  {{ convo.title || 'Untitled blabla' }}
                 </span>
                 <span class="conversation-row__meta">
                   <span v-if="convo.model">{{ modelLabel(convo.model) }}</span>
@@ -174,7 +174,7 @@
         <EmptyState
           v-else
           compact
-          title="No conversations yet"
+          title="No blablas yet"
           description="Hit Start chat to send your first message. The transcript will be saved here automatically."
         >
           <template #icon>
@@ -201,7 +201,7 @@
             <h3 class="card__title card__title--sm">Memories</h3>
             <p class="text-secondary section-row__hint">
               Auto-extracted facts, decisions, todos, and open questions from
-              wrapped-up conversations.
+              wrapped-up blablas.
             </p>
           </div>
           <button
@@ -275,7 +275,7 @@
                       <span v-if="item.conversation?.title">
                         From: {{ item.conversation.title }}
                       </span>
-                      <span v-else>From conversation #{{ item.conversation_id }}</span>
+                      <span v-else>From blabla #{{ item.conversation_id }}</span>
                     </RouterLink>
                     <span v-if="item.created_at" class="memory-row__time">
                       · {{ relativeTime(item.created_at) }}
@@ -305,7 +305,7 @@
           v-else
           compact
           title="No memories extracted yet"
-          description="Wrap up any conversation in this project to extract decisions, todos, and key facts."
+          description="Wrap up any blabla in this project to extract decisions, todos, and key facts."
         >
           <template #icon>
             <svg
@@ -347,7 +347,7 @@
           v-if="!memories.length && !memoriesLoading && !memoriesError"
           class="text-secondary pack-hint"
         >
-          Wrap up at least one conversation first — Context Packs are built from this project's memories.
+          Wrap up at least one blabla first — Context Packs are built from this project's memories.
         </p>
 
         <form
@@ -608,7 +608,7 @@ async function loadConversations() {
   } catch (err) {
     conversationsError.value = describeApiError(
       err,
-      'Could not load conversations.'
+      'Could not load blablas.'
     )
   } finally {
     conversationsLoading.value = false
@@ -748,7 +748,7 @@ function onUpdated(updated) {
 async function onDelete() {
   if (!project.value) return
   const ok = window.confirm(
-    `Delete "${project.value.name}"? This will remove the project and (later) its conversations and Context Packs.`
+    `Delete "${project.value.name}"? This will remove the project and (later) its blablas and Context Packs.`
   )
   if (!ok) return
   deleting.value = true

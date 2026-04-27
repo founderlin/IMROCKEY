@@ -29,9 +29,11 @@ from app.services.chat_service import (
     ChatError,
     count_for_user,
     delete_conversation,
+    delete_message_cascade,
     get_conversation_for_user,
     list_messages,
     list_recent_for_user,
+    regenerate_last_assistant,
     send_user_message,
     set_context_pack,
 )
@@ -211,6 +213,49 @@ def summarize(conversation_id: int):
         ),
         200,
     )
+
+
+@conversations_bp.post("/<int:conversation_id>/regenerate")
+@login_required
+def regenerate(conversation_id: int):
+    """Drop the last assistant message and re-run the LLM on the same user turn."""
+    user = get_current_user()
+    data = _payload()
+    try:
+        assistant_msg, convo = regenerate_last_assistant(
+            user,
+            conversation_id,
+            model=data.get("model"),
+            provider=data.get("provider"),
+        )
+    except ChatError as err:
+        return _error(err)
+    return (
+        jsonify(
+            {
+                "conversation": convo.to_dict(),
+                "assistant_message": assistant_msg.to_dict(),
+            }
+        ),
+        201,
+    )
+
+
+@conversations_bp.delete("/<int:conversation_id>/messages/<int:message_id>")
+@login_required
+def destroy_message(conversation_id: int, message_id: int):
+    """Delete a message and every message that came after it in this convo.
+
+    This matches the "edit/delete from here down" semantics that ChatGPT
+    and OpenRouter use — trimming a turn in the middle would otherwise
+    leave the rest of the thread with broken prompt continuity.
+    """
+    user = get_current_user()
+    try:
+        removed = delete_message_cascade(user, conversation_id, message_id)
+    except ChatError as err:
+        return _error(err)
+    return jsonify({"status": "ok", "removed": removed})
 
 
 @conversations_bp.get("/<int:conversation_id>/memories")
