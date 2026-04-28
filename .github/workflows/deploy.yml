@@ -49,7 +49,24 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key_path: /tmp/ecs_key
+          # Ship the Vite-time env vars to the remote shell. Vite only
+          # inlines VITE_* that are present *at build time*, so if we
+          # don't pass them through here the prod bundle silently has
+          # an empty VITE_GOOGLE_CLIENT_ID and the Google sign-in
+          # button never renders — that's the exact bug this fixes.
+          #
+          # VITE_API_BASE_URL goes along for the ride for the same reason.
+          envs: VITE_GOOGLE_CLIENT_ID,VITE_API_BASE_URL
           # The command exits non-zero if deploy.sh fails, failing the job.
+          # We re-export the vars inside the remote shell (ssh-action
+          # forwards them as env of the sshd session, but a login shell
+          # spawned by deploy.sh may drop non-whitelisted names — being
+          # explicit is cheap insurance).
           script: |
+            export VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID}"
+            export VITE_API_BASE_URL="${VITE_API_BASE_URL}"
             bash ~/deploy.sh
           script_stop: true
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}

@@ -152,3 +152,20 @@ curl https://api.your-domain.example.com/api/health
 ```
 
 任何上层的 LB / k8s readiness probe 直接打这个端点即可。
+
+### GitHub Actions 自动部署
+
+仓库 `.github/workflows/deploy.yml` 在 `push` 到 `main` 时通过 SSH 触发 ECS 上的 `~/deploy.sh`（服务器端脚本，负责 `git pull` + 后端 `pip install` + 前端 `npm run build` + `systemctl restart`）。
+
+需要在 GitHub repo → Settings → Secrets and variables → Actions 里配置以下 Secrets：
+
+| Secret | 说明 |
+| --- | --- |
+| `SSH_HOST` | ECS 公网地址 |
+| `SSH_USER` | 登录用户 |
+| `SSH_KEY_B64`（推荐）/ `SSH_KEY` | SSH 私钥，前者为 base64 单行编码 |
+| `VITE_API_BASE_URL` | 前端构建时写入 bundle 的后端 API 地址，例如 `https://api.your-domain.example.com` |
+| `VITE_GOOGLE_CLIENT_ID` | 前端构建时写入 bundle 的 Google OAuth Web Client ID；**留空则 Login / Register 页不会出现 Google 一键登录按钮** |
+
+> 踩坑记录：`VITE_*` 变量只在 `vite build` 执行那一刻被内联到产物里，服务器重启 Flask 不会重新读取；因此这两个值必须**在 `npm run build` 之前**出现在 shell env 中。workflow 已经用 `appleboy/ssh-action` 的 `envs:` 把它们转发到远端 shell 会话，`deploy.sh` 只要在调用 `npm run build` 之前照常继承环境即可（脚本本身不需要再 `source` 任何 env 文件）。如果 `deploy.sh` 自己用了 `env -i` 或 `sudo` 清洗环境，请务必把这两个名字加入白名单，否则生产 bundle 里会是空串，Google 按钮又会消失。
+
