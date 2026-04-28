@@ -23,6 +23,7 @@ from app.services.attachment_service import (
     AttachmentError,
     attach_to_message,
     read_bytes as read_attachment_bytes,
+    rebind_message_attachments,
     resolve_user_attachments,
 )
 from app.services.credentials_service import CredentialsError, get_decrypted_key_for
@@ -514,10 +515,25 @@ def regenerate_last_assistant(
     *,
     model: str | None = None,
     provider: str | None = None,
+    pivot_message_id: int | None = None,
+    new_user_content: str | None = None,
+    new_attachment_ids: list[int] | None = None,
 ) -> tuple[Message, Conversation]:
-    """Drop the most-recent assistant message and re-run the LLM.
+    """Regenerate an assistant reply, optionally at a specific point in the
+    conversation and/or after editing a user turn.
 
-    The preceding user turn is kept untouched (and its attachments too).
+    Modes:
+
+    * ``pivot_message_id=None``: drop the most-recent assistant and re-run
+      the LLM on the preceding user turn. Classic "retry".
+    * ``pivot_message_id`` points at an **assistant** message: delete that
+      assistant (and every message after it), then re-run on whichever
+      user turn came right before it.
+    * ``pivot_message_id`` points at a **user** message: delete every
+      message **after** that user turn (keeping the user message itself
+      — optionally rewriting its content via ``new_user_content``), then
+      re-run the LLM from that point. This implements "edit + retry".
+
     Returns ``(new_assistant_message, conversation)``.
     """
     convo = get_conversation_for_user(user, conversation_id)
@@ -530,37 +546,101 @@ def regenerate_last_assistant(
             status=400,
         )
 
-    # Find the most recent assistant message. Typical shape is
-    # [..., user, assistant]; if the last turn is a user message we
-    # just run a fresh completion off the existing history.
-    last_assistant_idx: int | None = None
-    for i in range(len(history) - 1, -1, -1):
-        if history[i].role == "assistant":
-            last_assistant_idx = i
-            break
+    pivot: Message | None = None
+    if pivot_message_id is not None:
+        pivot = next(
+            (m for m in history if m.id == pivot_message_id),
+            None,
+        )
+        if pivot is None or pivot.conversation_id != convo.id:
+            raise ChatError(
+                "not_found", "Message not found.", status=404
+            )
 
-    # Everything *before* the old assistant is what the new one should
-    # see as its context (including the user turn that drove the reply).
-    if last_assistant_idx is not None:
-        old_assistant = history[last_assistant_idx]
-        replay_history = history[:last_assistant_idx]
-        # The last entry in replay_history should be the user turn we
-        # want to re-answer. If it isn't (rare; e.g. two assistants in a
-        # row), we still replay whatever's there — the LLM will handle it.
-        db.session.delete(old_assistant)
-        db.session.commit()
-    else:
-        # No assistant yet — treat the whole history as replay context
-        # and just call the LLM again. (Unusual path; mostly for safety.)
-        replay_history = history
-
-    # Pick the user message that drove the (now-deleted) reply. This is
-    # the last user turn in replay_history.
+    # Figure out which user turn is going to drive the new completion,
+    # and what context comes before it. For a user-pivot we also (maybe)
+    # patch the user content first.
     last_user: Message | None = None
-    for m in reversed(replay_history):
-        if m.role == "user":
-            last_user = m
-            break
+    replay_history: list[Message]
+
+    if pivot is None:
+        # Classic retry: drop the latest assistant (if any), use the
+        # latest user before it.
+        last_assistant_idx = None
+        for i in range(len(history) - 1, -1, -1):
+            if history[i].role == "assistant":
+                last_assistant_idx = i
+                break
+        if last_assistant_idx is not None:
+            # Cascade-delete the old assistant + everything after it
+            # (usually nothing) so we never have dangling later turns.
+            to_cut = [m for m in history if m.id >= history[last_assistant_idx].id]
+            for m in to_cut:
+                db.session.delete(m)
+            db.session.commit()
+            replay_history = history[:last_assistant_idx]
+        else:
+            replay_history = history
+
+        for m in reversed(replay_history):
+            if m.role == "user":
+                last_user = m
+                break
+
+    elif pivot.role == "assistant":
+        # Delete this assistant + every turn after it, re-run on the
+        # user turn that immediately preceded it.
+        pivot_id = pivot.id
+        to_cut = [m for m in history if m.id >= pivot_id]
+        for m in to_cut:
+            db.session.delete(m)
+        db.session.commit()
+        replay_history = [m for m in history if m.id < pivot_id]
+        for m in reversed(replay_history):
+            if m.role == "user":
+                last_user = m
+                break
+
+    elif pivot.role == "user":
+        # Delete every turn *after* this user, optionally replace its
+        # content, then re-run from here.
+        pivot_id = pivot.id
+        to_cut = [m for m in history if m.id > pivot_id]
+        for m in to_cut:
+            db.session.delete(m)
+        if new_user_content is not None:
+            cleaned = _normalize_content(new_user_content)
+            pivot.content = cleaned
+            # Refresh the conversation title if it was auto-derived from
+            # this turn so users don't see a stale summary.
+            if convo.title and convo.title in (
+                _derive_title(cleaned),
+                _derive_title(pivot.content),
+            ):
+                convo.title = _derive_title(cleaned)
+            db.session.add(pivot)
+        db.session.commit()
+        # Rebind attachments to match the editor's current selection.
+        # ``None`` = leave untouched; ``[]`` = remove all; list of ids =
+        # the new canonical set (may mix already-attached + freshly-
+        # uploaded detached rows).
+        if new_attachment_ids is not None:
+            try:
+                rebind_message_attachments(user, pivot, new_attachment_ids)
+            except AttachmentError:
+                # Surface attachment errors unchanged so the route layer
+                # returns the right HTTP status.
+                raise
+        replay_history = [m for m in history if m.id <= pivot_id]
+        last_user = pivot
+
+    else:
+        raise ChatError(
+            "unsupported_pivot",
+            "Retry / edit is only supported on user and assistant messages.",
+            status=400,
+        )
+
     if last_user is None:
         raise ChatError(
             "no_user_turn",
@@ -586,11 +666,14 @@ def regenerate_last_assistant(
         )
     chosen_model = _normalize_model(model or convo.model)
 
-    # Build the payload from history *before* the old user turn + the
+    # Build the payload from history *before* the last user turn + the
     # user turn itself as the "new" user message (re-uses attachments).
     pack = convo.context_pack if convo.context_pack_id else None
-    # Everything up to but not including the last user turn.
     prior_history = [m for m in replay_history if m is not last_user]
+    # Force a refresh so any rebind_message_attachments mutation is
+    # reflected in the payload (SQLAlchemy's identity map would otherwise
+    # hold a stale in-memory list).
+    db.session.refresh(last_user)
     user_attachments = list(last_user.attachments or [])
     payload = _build_message_payload(
         prior_history,

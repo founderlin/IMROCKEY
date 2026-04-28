@@ -680,25 +680,31 @@ async function handleDeleteMessage(msg) {
 }
 
 async function handleRetryMessage(msg) {
-  // Fired from either an assistant bubble (re-run the reply to the
-  // same user turn) or from the last user bubble when no assistant has
-  // answered yet (first attempt failed / was stopped). The backend's
-  // /regenerate endpoint handles both cases — when there's no assistant
-  // it just runs a completion off the current history.
+  // Fired from any assistant *or* user bubble. We pass the clicked
+  // message's id to the backend's /regenerate so it knows exactly
+  // which pivot point to rebuild from (rather than always targeting
+  // "the latest assistant").
   if (!conversation.value || sending.value) return
   if (!msg) return
 
   const modelId = (selectedModel.value || DEFAULT_MODEL_ID).trim()
   const providerId = selectedProvider.value || DEFAULT_PROVIDER
 
-  // If the target is an assistant, drop it optimistically so the
-  // "thinking…" row lands in its place. For a user-bubble retry there's
-  // nothing to remove — the assistant is about to appear after it.
-  if (msg.role === 'assistant' && msg.id != null) {
-    const oldId = msg.id
-    messages.value = messages.value.filter(
-      (m) => !(m === msg || (oldId != null && m.id === oldId))
-    )
+  // Optimistically trim everything at/after the pivot so the "thinking…"
+  // placeholder lands in the right spot. For assistant pivots that's
+  // `id >= pivotId`; for user pivots we only drop strictly greater
+  // (the user turn itself stays).
+  const pivotId = msg?.id
+  if (pivotId != null) {
+    if (msg.role === 'assistant') {
+      messages.value = messages.value.filter(
+        (m) => m.id == null || Number(m.id) < Number(pivotId)
+      )
+    } else if (msg.role === 'user') {
+      messages.value = messages.value.filter(
+        (m) => m.id == null || Number(m.id) <= Number(pivotId)
+      )
+    }
   }
 
   const controller =
@@ -711,6 +717,7 @@ async function handleRetryMessage(msg) {
     const data = await chatApi.retryAssistant(conversation.value.id, {
       model: modelId,
       provider: providerId,
+      messageId: pivotId,
       signal: controller?.signal
     })
     if (data?.assistant_message) messages.value.push(data.assistant_message)
@@ -744,6 +751,114 @@ async function handleRetryMessage(msg) {
     } catch (_e) {
       /* ignore */
     }
+  } finally {
+    sending.value = false
+    sendAbortController.value = null
+  }
+}
+
+async function handleEditMessage(payload) {
+  // Payload shape:
+  //   { message, content, attachmentIds, resolve, reject }
+  // The bubble hands us a promise pair so it can close the editor only
+  // after the server accepts the reroll. `attachmentIds` is the final
+  // set the user wants (mixing existing + freshly-uploaded ids).
+  const {
+    message: msg,
+    content,
+    attachmentIds,
+    resolve,
+    reject
+  } = payload || {}
+  if (!conversation.value || !msg?.id || !content) {
+    reject && reject(new Error('Missing message or content.'))
+    return
+  }
+  if (sending.value) {
+    reject &&
+      reject(new Error('A request is already in flight.'))
+    return
+  }
+
+  const modelId = (selectedModel.value || DEFAULT_MODEL_ID).trim()
+  const providerId = selectedProvider.value || DEFAULT_PROVIDER
+
+  // Optimistic trim: drop everything strictly after the pivot user
+  // message, and patch its content in place so the UI reflects the
+  // new text immediately.
+  const pivotId = msg.id
+  messages.value = messages.value
+    .filter((m) => m.id == null || Number(m.id) <= Number(pivotId))
+    .map((m) =>
+      m.id != null && Number(m.id) === Number(pivotId)
+        ? { ...m, content }
+        : m
+    )
+
+  const controller =
+    typeof AbortController !== 'undefined' ? new AbortController() : null
+  sendAbortController.value = controller
+  sendError.value = ''
+  sending.value = true
+
+  try {
+    const data = await chatApi.retryAssistant(conversation.value.id, {
+      model: modelId,
+      provider: providerId,
+      messageId: pivotId,
+      content,
+      // Only forward attachmentIds when the caller explicitly supplied
+      // a list — undefined means "leave the server-side set alone".
+      ...(Array.isArray(attachmentIds) ? { attachmentIds } : {}),
+      signal: controller?.signal
+    })
+    if (data?.assistant_message) messages.value.push(data.assistant_message)
+    if (data?.conversation) {
+      conversation.value = { ...conversation.value, ...data.conversation }
+      applyConversationModel(
+        data.conversation.model,
+        data.conversation.provider
+      )
+    }
+    // Refresh the messages list from the server so the edited user
+    // message gets its new attachments list reflected on the bubble.
+    try {
+      const refreshed = await chatApi.listMessages(conversation.value.id)
+      if (Array.isArray(refreshed?.messages)) {
+        messages.value = refreshed.messages
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+    loadConversations()
+    resolve && resolve()
+  } catch (err) {
+    const wasAborted =
+      err?.name === 'CanceledError' ||
+      err?.name === 'AbortError' ||
+      err?.code === 'ERR_CANCELED' ||
+      (controller && controller.signal.aborted)
+    if (!wasAborted) {
+      sendError.value = describeApiError(
+        err,
+        'Could not save this edit.'
+      )
+    }
+    // Resync so the old state comes back if the reroll failed.
+    try {
+      const refreshed = await chatApi.listMessages(conversation.value.id)
+      if (Array.isArray(refreshed?.messages)) {
+        messages.value = refreshed.messages
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+    reject &&
+      reject(
+        err instanceof Error
+          ? err
+          : new Error(describeApiError(err, 'Could not save this edit.'))
+      )
   } finally {
     sending.value = false
     sendAbortController.value = null
@@ -1402,6 +1517,7 @@ onBeforeUnmount(() => {
           @copy="handleCopyMessage"
           @retry="handleRetryMessage"
           @delete="handleDeleteMessage"
+          @edit="handleEditMessage"
         />
 
         <ChatComposer

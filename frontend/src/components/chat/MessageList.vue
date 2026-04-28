@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import MessageBubble from './MessageBubble.vue'
 
 const props = defineProps({
@@ -8,44 +8,17 @@ const props = defineProps({
   highlightId: { type: [Number, String, null], default: null }
 })
 
-const emit = defineEmits(['copy', 'retry', 'delete'])
+const emit = defineEmits(['copy', 'retry', 'delete', 'edit'])
 
 const scrollEl = ref(null)
 
-// Retry is always driven by /regenerate on the server, which drops the
-// most recent assistant and re-runs the LLM on the last user turn. So
-// the button is only meaningful on:
-//   - the most recent assistant message, or
-//   - the most recent user message (if it's the very last turn, i.e.
-//     we already stopped / errored before an assistant reply).
-const lastAssistantId = computed(() => {
-  for (let i = props.messages.length - 1; i >= 0; i--) {
-    const m = props.messages[i]
-    if (m.role === 'assistant' && m.id != null) return m.id
-  }
-  return null
-})
-
-const lastUserId = computed(() => {
-  for (let i = props.messages.length - 1; i >= 0; i--) {
-    const m = props.messages[i]
-    if (m.role === 'user' && m.id != null) return m.id
-  }
-  return null
-})
-
+// Retry hits the server's /regenerate endpoint, which now accepts a
+// pivot message id and rebuilds the thread from that point forward.
+// That means *any* persisted user or assistant turn is a valid retry
+// target — we just need to be sure we're not already mid-request.
 function canRetryMessage(msg) {
   if (props.pending || msg.id == null) return false
-  if (msg.role === 'assistant') return msg.id === lastAssistantId.value
-  if (msg.role === 'user') {
-    // Only the most recent user turn — and only if it's currently the
-    // tail of the thread (no assistant after it yet). If there IS an
-    // assistant after it, retry the assistant instead.
-    return (
-      msg.id === lastUserId.value && lastAssistantId.value == null
-    )
-  }
-  return false
+  return msg.role === 'assistant' || msg.role === 'user'
 }
 
 async function scrollToBottom() {
@@ -83,6 +56,7 @@ watch(
         @copy="emit('copy', $event)"
         @retry="emit('retry', $event)"
         @delete="emit('delete', $event)"
+        @edit="emit('edit', $event)"
       />
       <div v-if="pending" class="message-list__pending" aria-live="polite">
         <span class="dot" />
@@ -106,7 +80,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  max-width: 920px;
+  max-width: 1040px;
   margin: 0 auto;
 }
 

@@ -218,18 +218,71 @@ def summarize(conversation_id: int):
 @conversations_bp.post("/<int:conversation_id>/regenerate")
 @login_required
 def regenerate(conversation_id: int):
-    """Drop the last assistant message and re-run the LLM on the same user turn."""
+    """Regenerate an assistant reply. Optionally pin it to a specific
+    message (``message_id``) and/or edit the user turn's content first.
+
+    Body fields (all optional):
+        model, provider            — override the default for this call
+        message_id                 — pivot point; defaults to latest assistant
+        content                    — new user content; only honored when
+                                     message_id refers to a user message
+        attachment_ids             — new attachment set for the pivot user
+                                     message; ``None`` leaves attachments
+                                     alone, ``[]`` clears them all
+    """
     user = get_current_user()
     data = _payload()
+    raw_pivot = data.get("message_id")
+    pivot_id: int | None
+    if raw_pivot in (None, ""):
+        pivot_id = None
+    else:
+        try:
+            pivot_id = int(raw_pivot)
+        except (TypeError, ValueError):
+            return (
+                jsonify(
+                    {
+                        "error": "validation_error",
+                        "message": "message_id must be an integer.",
+                    }
+                ),
+                400,
+            )
+
+    # Attachment ids are optional; a missing key means "don't touch the
+    # existing set", an empty list means "remove everything".
+    new_attachment_ids: list[int] | None
+    if "attachment_ids" in data:
+        raw_ids = data.get("attachment_ids")
+        if not isinstance(raw_ids, list):
+            return (
+                jsonify(
+                    {
+                        "error": "validation_error",
+                        "message": "attachment_ids must be a list.",
+                    }
+                ),
+                400,
+            )
+        new_attachment_ids = raw_ids
+    else:
+        new_attachment_ids = None
+
     try:
         assistant_msg, convo = regenerate_last_assistant(
             user,
             conversation_id,
             model=data.get("model"),
             provider=data.get("provider"),
+            pivot_message_id=pivot_id,
+            new_user_content=data.get("content"),
+            new_attachment_ids=new_attachment_ids,
         )
     except ChatError as err:
         return _error(err)
+    except AttachmentError as err:
+        return _attachment_error(err)
     return (
         jsonify(
             {

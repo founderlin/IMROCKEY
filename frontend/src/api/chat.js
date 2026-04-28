@@ -77,11 +77,21 @@ export const chatApi = {
   },
   retryAssistant(
     conversationId,
-    { model, provider, signal } = {}
+    { model, provider, messageId, content, attachmentIds, signal } = {}
   ) {
     const body = {}
     if (model) body.model = model
     if (provider) body.provider = provider
+    if (messageId != null) body.message_id = messageId
+    if (content != null) body.content = content
+    // ``undefined`` means "don't change attachments", ``null`` means
+    // "clear them all" — we forward an explicit null as an empty list
+    // so the backend interprets it unambiguously.
+    if (attachmentIds !== undefined) {
+      body.attachment_ids = Array.isArray(attachmentIds)
+        ? attachmentIds
+        : []
+    }
     const config = { timeout: 120_000 }
     if (signal) config.signal = signal
     return apiClient

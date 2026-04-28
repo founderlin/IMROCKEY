@@ -373,6 +373,98 @@ def attach_to_message(attachments: list[Attachment], message: Message) -> None:
     db.session.commit()
 
 
+def rebind_message_attachments(
+    user: User,
+    message: Message,
+    attachment_ids: Iterable[int],
+) -> list[Attachment]:
+    """Reconcile the set of attachments hanging off ``message`` with the
+    caller-supplied ``attachment_ids``.
+
+    * Ids already attached to this message stay put.
+    * Ids currently detached (and belonging to the same user + convo)
+      get stamped onto the message.
+    * Attachments previously on the message but not in the new set are
+      removed entirely (DB row + disk file), matching the semantics the
+      composer offers — "the attachments you see in the editor *are*
+      the attachments that go with this turn".
+
+    Returns the final ordered list of attachments, matching input order
+    for a deterministic prompt payload.
+    """
+    ids = [int(i) for i in attachment_ids if str(i).strip()]
+
+    # Everything currently on the message.
+    current = list(
+        db.session.query(Attachment)
+        .filter(Attachment.message_id == message.id)
+        .all()
+    )
+    current_by_id = {a.id: a for a in current}
+
+    # Look up the incoming ids, rejecting anything the caller isn't
+    # allowed to bind here.
+    if ids:
+        rows = (
+            db.session.query(Attachment)
+            .filter(Attachment.id.in_(ids))
+            .all()
+        )
+        if len(rows) != len(set(ids)):
+            raise AttachmentError(
+                "not_found", "One or more attachments were not found.", status=404
+            )
+        for att in rows:
+            if att.user_id != user.id:
+                raise AttachmentError(
+                    "not_found", "Attachment not found.", status=404
+                )
+            if att.conversation_id != message.conversation_id:
+                raise AttachmentError(
+                    "wrong_conversation",
+                    "Attachment belongs to another conversation.",
+                    status=409,
+                )
+            # Allowed states: already bound to this message (keep), or
+            # detached. Anything bound to a *different* message is a
+            # hard 409 — we don't silently steal attachments across turns.
+            if att.message_id is not None and att.message_id != message.id:
+                raise AttachmentError(
+                    "already_sent",
+                    "One of those files belongs to another message.",
+                    status=409,
+                )
+        incoming_by_id = {r.id: r for r in rows}
+    else:
+        incoming_by_id = {}
+
+    # Attachments we need to unbind + delete: previously on the message
+    # but no longer in the incoming set.
+    for att in current:
+        if att.id not in incoming_by_id:
+            path = _path_for(att)
+            db.session.delete(att)
+            _delete_file_silently(path)
+
+    # Stamp any incoming rows that weren't already on this message.
+    for att in incoming_by_id.values():
+        if att.message_id != message.id:
+            att.message_id = message.id
+            db.session.add(att)
+
+    db.session.commit()
+
+    # Return in the caller-specified order so the prompt payload matches
+    # the UI's visual ordering. Refresh from the session to get the
+    # latest state.
+    ordered: list[Attachment] = []
+    for i in ids:
+        row = current_by_id.get(i) or incoming_by_id.get(i)
+        if row is not None:
+            ordered.append(row)
+    return ordered
+
+
 def gc_stale_detached(*, hours: int | None = None) -> int:
     """Delete detached attachments older than ``DETACHED_TTL_HOURS``.
 
@@ -413,6 +505,7 @@ __all__ = [
     "get_for_user",
     "list_for_conversation",
     "read_bytes",
+    "rebind_message_attachments",
     "resolve_user_attachments",
     "upload",
 ]

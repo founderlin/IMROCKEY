@@ -501,10 +501,10 @@ function iconForAttachment(att) {
      part of the same box as the toolbar below. */
   border: none;
   background: transparent;
-  padding: 12px 14px 6px;
+  padding: 14px 16px 6px;
   font-family: inherit;
-  font-size: var(--text-base);
-  line-height: 1.55;
+  font-size: var(--text-md);
+  line-height: 1.6;
   color: var(--color-text-primary);
   min-height: 52px;
   max-height: 220px;
