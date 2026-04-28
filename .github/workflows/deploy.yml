@@ -19,12 +19,36 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # Multi-line SSH private keys are notoriously easy to mangle when
+      # pasted into a GitHub secret (trailing newlines stripped, CRLF
+      # injected, UI truncation, etc.). We therefore prefer a base64-
+      # encoded single-line secret that we decode right before handing
+      # it to the SSH action.
+      - name: Decode SSH key
+        env:
+          SSH_KEY_B64: ${{ secrets.SSH_KEY_B64 }}
+          SSH_KEY_RAW: ${{ secrets.SSH_KEY }}
+        run: |
+          if [ -n "${SSH_KEY_B64:-}" ]; then
+            echo "${SSH_KEY_B64}" | base64 -d > /tmp/ecs_key
+          elif [ -n "${SSH_KEY_RAW:-}" ]; then
+            printf '%s\n' "${SSH_KEY_RAW}" > /tmp/ecs_key
+          else
+            echo "Neither SSH_KEY_B64 nor SSH_KEY is set."
+            exit 1
+          fi
+          chmod 600 /tmp/ecs_key
+          # Basic sanity check so failures show up here, not deep inside ssh-action.
+          head -1 /tmp/ecs_key | grep -qE '^-----BEGIN (OPENSSH|RSA|EC|ED25519) PRIVATE KEY-----$' \
+            || (echo "Decoded key does not look like an OpenSSH private key header:" \
+                 && head -1 /tmp/ecs_key && exit 1)
+
       - name: Trigger remote deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
+          key_path: /tmp/ecs_key
           # The command exits non-zero if deploy.sh fails, failing the job.
           script: |
             bash ~/deploy.sh
