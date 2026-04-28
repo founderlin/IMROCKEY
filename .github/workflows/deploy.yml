@@ -1,0 +1,31 @@
+name: Deploy to ECS
+
+# Runs deploy.sh on the Alibaba Cloud ECS over SSH whenever main moves.
+# The server-side script does git pull + pip install + npm build +
+# systemctl restart; this workflow just pokes it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # allow manual trigger from the Actions tab
+
+concurrency:
+  # Never run two deploys at once — the second one would race on the file
+  # tree mid-pull. Cancel the older run if a newer push comes in.
+  group: ecs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger remote deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          # The command exits non-zero if deploy.sh fails, failing the job.
+          script: |
+            bash ~/deploy.sh
+          script_stop: true
