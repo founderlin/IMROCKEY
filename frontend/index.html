@@ -9,10 +9,13 @@
       content="Prompt Package — turn your OpenRouter chats into reusable project memory: chat, summarize, search, and generate Context Packs you can paste into the next AI session."
     />
     <meta name="theme-color" content="#1a73e8" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Fonts come from the operating system. We used to pull Roboto
+         from Google Fonts, but Chrome's Private Network Access rules
+         block cross-origin fetches from HTTP pages served on a LAN-ish
+         IP (like our bare ECS IP), which would leave the UI unstyled.
+         The system stack gives us the same visual feel everywhere:
+         SF Pro on Apple, Segoe UI on Windows, Roboto on Android,
+         Ubuntu on Linux desktops. -->
     <style>
       /* Inline boot splash so the first paint isn't a blank white square. */
       #app:empty::before {
