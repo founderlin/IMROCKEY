@@ -2,7 +2,7 @@
   <div class="privacy-view">
     <PageHeader
       title="Privacy"
-      description="A short summary of how Prompt Package handles your data while we are still in MVP."
+      :description="privacyIntro"
     />
 
     <section class="card">
@@ -10,7 +10,7 @@
       <ul class="bullets">
         <li>Your account: email and a hashed password.</li>
         <li>Your OpenRouter API key, encrypted at rest. Never returned to the browser.</li>
-        <li>Projects, blablas, messages, summaries, and Context Packs you create.</li>
+        <li>Projects, blablas, messages, summaries, Context Packs, and Wrap Markdown files you save under project memory.</li>
       </ul>
     </section>
 
@@ -35,7 +35,14 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { APP_VERSION } from '@/constants/appVersion'
+
+const privacyIntro = computed(
+  () =>
+    `How Prompt Package handles your data in early releases (currently v${APP_VERSION}).`
+)
 </script>
 
 <style scoped>

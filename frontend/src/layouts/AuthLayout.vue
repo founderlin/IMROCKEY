@@ -11,7 +11,7 @@
     </main>
 
     <footer class="auth-layout__footer">
-      <span>Prompt Package · MVP v0.1.0</span>
+      <span>Prompt Package · v{{ APP_VERSION }}</span>
       <span>·</span>
       <RouterLink to="/privacy">Privacy</RouterLink>
     </footer>
@@ -21,6 +21,7 @@
 <script setup>
 import { RouterLink } from 'vue-router'
 import logoFull from '@/icon2.png'
+import { APP_VERSION } from '@/constants/appVersion'
 </script>
 
 <style scoped>

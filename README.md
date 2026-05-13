@@ -2,7 +2,7 @@
 
 <img width="748" height="221" alt="Prompt Package Logo" src="https://github.com/user-attachments/assets/764edff7-1d60-4da2-b6e2-4c04c400ba0f" />
 
-> **[English](#english) | [简体中文](#简体中文) | [Deutsch](#deutsch)**
+> **[English](#english) | [简体中文](#简体中文) | [Deutsch](#deutsch)** · Release notes: [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -10,18 +10,24 @@
 ## English
 
 ### Overview
-**Prompt Package** is an AI project memory tool designed for individual users of OpenRouter, DeepSeek, and OpenAI. It turns transient AI conversations into a reusable knowledge base. By summarizing chats, creating hand-written notes, and generating "Context Packs," it ensures your next AI session starts exactly where the last one left off.
+**Prompt Package** is an AI project memory tool designed for individual users of OpenRouter, DeepSeek, and OpenAI. It turns transient AI conversations into a reusable knowledge base: **Context Packs** (structured, database-backed context you can attach to later chats), **Wrap** (Markdown memory files saved on disk per project), Bla Notes, and summaries help the next session pick up where you left off.
+
+**Current release: v0.2.0**
 
 ### Deployment & Availability
 - **Live Demo**: Try it online at **[prompt-p.cc](http://prompt-p.cc/)** — no signup tricks, just register and start building your project memory.
 - **Global Model Access**: The cloud instance is hosted on an overseas node, so models from OpenAI, Google (Gemini), and Anthropic (Claude) — as well as OpenRouter and DeepSeek — all work directly in the browser without a VPN.
 
-### What's New
-- **Wrap Up**: Summarize individual chats or entire projects into a single Context Pack.
-- **Context Zoo**: A central hub to browse, search, and manage all your context assets in a responsive grid.
-- **Bla Notes**: Project-scoped lightweight Markdown notes for manual knowledge entry.
-- **Chat Context Picker**: Attach project notes directly to your chat messages as background context for the LLM.
-- **Enhanced Data Model**: Context Packs now support versioning, structured content, visibility controls, and usage tracking.
+### What's New in v0.2.0
+- **Wrap (on-disk project memory)**: From the chat **Wrap** menu, export a conversation to Markdown under each project’s memory folder (YAML frontmatter). **Quick Wrap** for a fast draft and save; **Advanced Wrap** for model choice, per-category filters, optional topic hints, and editable Markdown before save; **Routine Wrap** for weekly / bi-weekly / monthly reminders with **mandatory review** (no silent auto-save in this release).
+- **Dashboard**: Project cards show **wrap count**, **total wrap size**, and **last wrapped** (or “Never” when there are no wrap files).
+- **Streaming chat & retry**: Assistant replies stream over SSE. **Retry** rewrites only the targeted assistant message in place; **later messages stay** in the thread (OpenRouter-style semantics).
+- **Settings**: Three panels — **API keys**, **Chat models** (composer picker), and **Wrap model** (default for wrap generation).
+- **Chat UX**: Colored context chips for attached notes; improved CJK IME handling so **Enter** sends reliably after composition.
+- **Still in the product**: **Context Zoo**, **Bla Notes**, **+ Context** in chat, and **Context Packs**. Legacy **“Wrap Up”** shortcuts on the project page and chat tab were removed in favor of Wrap; Context Pack flows remain wherever the app still exposes them.
+
+### Earlier highlights (v0.1.x)
+- **Context Zoo**, **Bla Notes**, **Chat Context Picker**, and Context Pack **versioning / structured content / visibility / usage** tracking.
 
 ### Tech Stack
 - **Frontend**: Vue 3 (Composition API), Vite, Vue Router, Axios.
@@ -96,18 +102,24 @@ Want Postgres instead of the bundled SQLite? Add a `db` service to
 ## 简体中文
 
 ### 概览
-**Prompt Package** 是一款面向 OpenRouter、DeepSeek 和 OpenAI 个人用户的 AI 项目记忆工具。它将零散的 AI 对话转化为可复用的项目知识库。通过自动摘要、手动记录（Bla Note）以及生成“Context Pack”，它能确保您的下一次 AI 会话能够无缝承接上一次的进度。
+**Prompt Package** 是一款面向 OpenRouter、DeepSeek 和 OpenAI 个人用户的 AI 项目记忆工具。它将零散的 AI 对话转化为可复用的项目知识库：**Context Pack**（数据库中的结构化上下文包）、**Wrap**（按项目写入磁盘的 Markdown 记忆）、Bla Note 与摘要等能力，让下一次会话无缝承接上一次进度。
+
+**当前版本：v0.2.0**
 
 ### 部署与可用性
 - **线上演示**：访问 **[prompt-p.cc](http://prompt-p.cc/)** 直接体验，注册账号即可开始构建您的项目知识库。
 - **海外模型直连**：由于实例部署在海外节点，OpenAI、Google（Gemini）、Anthropic（Claude）以及 OpenRouter、DeepSeek 的模型均可在网页中直接使用，**无需 VPN**。
 
-### 最新功能
-- **Wrap Up（整理）**: 将单个对话或整个项目整理成一个 Context Pack。
-- **Context Zoo（上下文仓库）**: 用于浏览、搜索和管理所有 Context Pack 的中心，支持响应式网格布局。
-- **Bla Notes（项目笔记）**: 项目级的轻量 Markdown 笔记，用于记录手动输入的知识点。
-- **对话引用**: 在聊天框通过“+ Context”选择器直接引用项目笔记作为 LLM 的背景上下文。
-- **核心模型升级**: Context Pack 现在支持版本管理、结构化内容、可见性控制和使用频率追踪。
+### v0.2.0 新功能
+- **Wrap（项目磁盘记忆）**：在对话 **Wrap** 菜单中，将会话导出为带 YAML frontmatter 的 Markdown，保存到各项目 memory 目录。**Quick Wrap** 快速出稿并保存；**Advanced Wrap** 可选模型、按类别过滤、主题分析提示、保存前可编辑正文；**Routine Wrap** 支持每周 / 双周 / 每月到期提醒，**必须 Review 后才能保存**（本版不做静默自动保存）。
+- **Dashboard**：项目卡片展示 **Wrap 数量**、**Wrap 占用总大小**、**上次 Wrap 时间**（无文件时显示 Never）。
+- **流式对话与 Retry**：助手回复通过 SSE 流式输出；**Retry** 只就地重写当前选中的那条助手回复，**后续对话全部保留**（类似 OpenRouter 的就地重生成语义）。
+- **设置页三块**：**API 密钥**、**Chat 模型**（对话里模型选择器展示哪些模型）、**Wrap 模型**（Wrap 生成默认模型）。
+- **对话体验**：已选 Context 芯片颜色区分；中文等 IME 下 **回车发送** 更可靠。
+- **仍保留**：**Context Zoo**、**Bla Notes**、对话 **+ Context**、数据库内的 **Context Pack**。原先项目页 / 对话侧栏上的旧版 **「Wrap Up」** 入口已移除，由 Wrap 替代；Context Pack 相关能力在应用中其它入口仍可使用。
+
+### v0.1.x 已有能力
+- **Context Zoo**、**Bla Notes**、**+ Context** 引用、Context Pack 的**版本 / 结构化内容 / 可见性 / 使用统计**。
 
 ### 技术栈
 - **前端**: Vue 3 (Composition API), Vite, Vue Router, Axios。
@@ -126,18 +138,23 @@ Want Postgres instead of the bundled SQLite? Add a `db` service to
 ## Deutsch
 
 ### Überblick
-**Prompt Package** ist ein KI-Projekt-Gedächtnistool für Einzelnutzer von OpenRouter, DeepSeek und OpenAI. Es verwandelt flüchtige KI-Gespräche in eine wiederverwendbare Wissensdatenbank. Durch Zusammenfassungen, manuelle Notizen (Bla Note) und die Erstellung von „Context Packs“ stellt es sicher, dass Ihre nächste KI-Sitzung genau dort fortgesetzt wird, wo die letzte aufgehört hat.
+**Prompt Package** ist ein KI-Projekt-Gedächtnistool für Einzelnutzer von OpenRouter, DeepSeek und OpenAI. Es verwandelt flüchtige KI-Gespräche in eine wiederverwendbare Wissensdatenbank: **Context Packs** (strukturiert in der Datenbank), **Wrap** (Markdown-Dateien pro Projekt auf der Festplatte), Bla Notes und Zusammenfassungen schließen die Lücke zwischen den Sitzungen.
+
+**Aktuelle Version: v0.2.0**
 
 ### Bereitstellung & Verfügbarkeit
 - **Live-Demo**: Online ausprobieren unter **[prompt-p.cc](http://prompt-p.cc/)** — einfach registrieren und sofort loslegen.
 - **Globaler Modellzugriff**: Da die Instanz auf einem Übersee-Knoten läuft, funktionieren Modelle von OpenAI, Google (Gemini) und Anthropic (Claude) — sowie OpenRouter und DeepSeek — direkt im Browser, **ohne VPN**.
 
-### Neue Funktionen
-- **Wrap Up (Zusammenfassung)**: Fassen Sie einzelne Chats oder ganze Projekte in einem einzigen Context Pack zusammen.
-- **Context Zoo**: Ein zentraler Hub zum Durchsuchen, Filtern und Verwalten all Ihrer Kontext-Assets in einem responsiven Raster.
-- **Bla Notes**: Projektbezogene, leichtgewichtige Markdown-Notizen für die manuelle Wissenseingabe.
-- **Chat Context Picker**: Fügen Sie Projektnotizen direkt an Ihre Chat-Nachrichten als Hintergrundkontext für das LLM an.
-- **Erweitertes Datenmodell**: Context Packs unterstützen jetzt Versionierung, strukturierten Inhalt, Sichtbarkeitskontrollen und Nutzungsstatistiken.
+### Neu in v0.2.0
+- **Wrap (Datei-Gedächtnis)**: Über das **Wrap**-Menü im Chat werden Gespräche als Markdown mit YAML-Frontmatter im Projektordner gespeichert. **Quick Wrap** für schnellen Entwurf; **Advanced Wrap** für Modellwahl, Filter, Themenhinweise und bearbeitbares Markdown; **Routine Wrap** mit Erinnerung (wöchentlich / zweiwöchentlich / monatlich) und **verpflichtender Review** (kein stilles Auto-Save).
+- **Dashboard**: Projektkarten zeigen **Wrap-Anzahl**, **Gesamtgröße** und **zuletzt gewrappt** (oder „Never“).
+- **Streaming & Retry**: Antworten per SSE gestreamt. **Retry** ersetzt nur die gewählte Assistentennachricht; **alle folgenden Nachrichten bleiben** (OpenRouter-ähnlich).
+- **Einstellungen**: Drei Bereiche — **API-Keys**, **Chat-Modelle**, **Wrap-Modell**.
+- **Chat-UX**: Farbige Kontext-Chips; zuverlässigeres **Enter** nach IME-Eingabe (CJK).
+
+### Bereits in v0.1.x
+- **Context Zoo**, **Bla Notes**, **Chat-Context-Picker**, Context-Pack-**Versionierung / Struktur / Sichtbarkeit / Nutzung**. Alte **„Wrap Up“**-Buttons auf Projekt- und Chat-Seite wurden durch Wrap ersetzt; Context-Pack-Funktionen bleiben erhalten, wo die App sie anbietet.
 
 ### Technologie-Stack
 - **Frontend**: Vue 3 (Composition API), Vite, Vue Router, Axios.

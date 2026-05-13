@@ -41,7 +41,7 @@ class BaseConfig:
     """Shared defaults for every environment."""
 
     APP_NAME = "promptpackage-backend"
-    APP_VERSION = "0.1.0"
+    APP_VERSION = "0.2.0"
 
     SECRET_KEY = os.getenv("SECRET_KEY", _DEV_SECRET_KEY)
 

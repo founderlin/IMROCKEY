@@ -1,6 +1,6 @@
-# Prompt Package frontend
+# Prompt Package frontend (v0.2.0)
 
-Vue 3 + Vite 前端，通过 REST API 调用 Flask 后端。
+Vue 3 + Vite 前端，通过 REST API 调用 Flask 后端。界面版本号与 `package.json` / `src/constants/appVersion.js` 保持一致；v0.2 起包含 Wrap 菜单、流式对话与设置页三块（API / Chat / Wrap 模型）等。
 
 ## 启动
 

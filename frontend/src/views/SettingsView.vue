@@ -2,7 +2,7 @@
   <div class="settings-view">
     <PageHeader
       title="Settings"
-      description="Manage your account, API keys, chat models, and wrap defaults."
+      :description="settingsDescription"
     />
 
     <section class="card">
@@ -158,6 +158,10 @@
       </p>
       <button class="btn btn--danger" type="button" disabled>Delete all my data</button>
     </section>
+
+    <p class="settings-view__version text-secondary" role="note">
+      Prompt Package v{{ APP_VERSION }}
+    </p>
   </div>
 </template>
 
@@ -177,9 +181,15 @@ import {
   getDefaultWrapModel,
   setDefaultWrapModel
 } from '@/utils/wrapModelPref'
+import { APP_VERSION } from '@/constants/appVersion'
 
 const router = useRouter()
 const auth = useAuth()
+
+const settingsDescription = computed(
+  () =>
+    `Manage your account, API keys, chat models, and wrap defaults. (v${APP_VERSION})`
+)
 
 const loggingOut = ref(false)
 const user = computed(() => auth.user.value)
@@ -478,5 +488,11 @@ onMounted(async () => {
   .account-row .btn {
     width: 100%;
   }
+}
+
+.settings-view__version {
+  margin: var(--space-5) 0 0;
+  font-size: var(--text-xs);
+  text-align: center;
 }
 </style>

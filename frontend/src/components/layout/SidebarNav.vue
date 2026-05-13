@@ -101,7 +101,7 @@
     </nav>
 
     <div class="sidebar__footer">
-      <span v-show="!collapsed" class="chip">MVP · v0.1.0</span>
+      <span v-show="!collapsed" class="chip">v{{ APP_VERSION }}</span>
     </div>
 
     <!-- Collapse / expand toggle. Sits on the right edge of the sidebar so
@@ -138,6 +138,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import logoFull from '@/icon2.png'
 import logoMark from '@/icon1.png'
+import { APP_VERSION } from '@/constants/appVersion'
 import { useAuth } from '@/stores/auth'
 
 const route = useRoute()
